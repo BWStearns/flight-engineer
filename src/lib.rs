@@ -3,11 +3,49 @@ use mavlink::common::MavCmd::*;
 use mavlink::common::MavMessage::*;
 use mavlink::{common::*, MavConnection};
 use std::time::Duration;
+mod telem;
+
+#[derive(Debug)]
+pub struct Param {
+    id: String,
+    value: String,
+    count: u16,
+    index: u16,
+    param_type: MavParamType,
+}
+
+// Might want to coerce the param value to a more useful type.
+// These are the possible types:
+// MAV_PARAM_TYPE_UINT8
+// MAV_PARAM_TYPE_INT8
+// MAV_PARAM_TYPE_UINT16
+// MAV_PARAM_TYPE_INT16
+// MAV_PARAM_TYPE_UINT32
+// MAV_PARAM_TYPE_INT32
+// MAV_PARAM_TYPE_UINT64
+// MAV_PARAM_TYPE_INT64
+// MAV_PARAM_TYPE_REAL32
+// MAV_PARAM_TYPE_REAL64
+
+impl From<PARAM_VALUE_DATA> for Param {
+    fn from(param: PARAM_VALUE_DATA) -> Self {
+        Self {
+            id: String::from_utf8_lossy(&param.param_id)
+                .trim_matches('\0')
+                .to_string(),
+            value: param.param_value.to_string(),
+            count: param.param_count,
+            index: param.param_index,
+            param_type: param.param_type,
+        }
+    }
+}
 
 pub struct Vehicle {
     pub connection: Box<dyn MavConnection<MavMessage>>,
-    pub params: std::collections::HashMap<String, f32>,
+    pub params: std::collections::HashMap<String, Param>,
     pub receive_timeout: Duration,
+    pub telem: telem::Telemetry,
 }
 
 impl Vehicle {
@@ -16,6 +54,7 @@ impl Vehicle {
             connection,
             params: std::collections::HashMap::new(),
             receive_timeout: Duration::from_secs(1),
+            telem: telem::Telemetry::new(),
         }
     }
 
@@ -83,7 +122,7 @@ impl Vehicle {
 
         // Create a map to store parameters
         let start_time = std::time::Instant::now();
-        let timeout = Duration::from_secs(10);
+        let timeout = Duration::from_secs(20);
 
         while start_time.elapsed() < timeout {
             match self.receive() {
@@ -92,11 +131,9 @@ impl Vehicle {
                         let param_id = String::from_utf8_lossy(&param.param_id)
                             .trim_matches('\0')
                             .to_string();
-                        self.params.insert(param_id.clone(), param.param_value);
-
+                        self.params.insert(param_id.clone(), param.clone().into());
                         // Check if we've received all parameters
                         if self.params.len() as u16 == param.param_count {
-                            println!("{:#?}", &param);
                             println!("Received all {} parameters", self.params.len());
                             break;
                         }
@@ -114,6 +151,7 @@ impl Vehicle {
             }
         }
         if start_time.elapsed() >= timeout {
+            println!("Params received: {:#?}", self.params);
             println!(
                 "Timeout waiting for parameters. Received {} parameters.",
                 self.params.len()
@@ -123,6 +161,22 @@ impl Vehicle {
             Ok(())
         }
     }
+
+    // pub fn set_param(&mut self, param_id: &str, value: f32) -> Result<()> {
+    //     let param_id = String::from_utf8_lossy(param_id.as_bytes())
+    //         .trim_matches('\0')
+    //         .to_string();
+    //     let param_set = MavMessage::PARAM_SET(PARAM_SET_DATA {
+    //         target_system: 1,
+    //         target_component: 1,
+    //         param_id: param_id.into_bytes().as_slice().try_into().unwrap(),
+    //         param_value: value,
+    //         param_type: 0,
+    //     });
+    //     self.connection
+    //         .send(&mavlink::MavHeader::default(), &param_set)?;
+    //     Ok(())
+    // }
 
     // pub fn set_receive_timeout(&mut self, duration: Duration) -> Result<()> {
     //     self.connection.set_receive_timeout(duration)?;

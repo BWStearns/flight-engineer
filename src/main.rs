@@ -5,7 +5,18 @@ use mavlink::common::MavMessage;
 use std::time::Duration;
 
 #[derive(Parser)]
-#[command(version, about, long_about = None)]
+#[command(
+    version,
+    about,
+    long_about = "\n
+This is a command line interface for the flight engineer library.
+
+You can call it like `cargo run serial:/dev/tty.usbmodem01:57600 telem` where the first argument
+is the connection string and the second argument is the subcommand. The connection string is how
+to connect to the vehicle, which may vary depending whether you're talking via serial, usb, radio,
+etc.
+"
+)]
 struct Args {
     /// Connection string (e.g., serial:/dev/ttyUSB0:57600)
     connection_string: String,
@@ -35,11 +46,11 @@ async fn main() -> Result<()> {
     match args.command {
         Commands::Telem => {
             println!("Listening for attitude messages...");
-            vehicle.request_stream();
+            let _ = vehicle.request_stream();
             loop {
                 match vehicle.receive() {
-                    Ok((msg, _)) => {
-                        if let MavMessage::ATTITUDE(attitude) = msg {
+                    Ok((msg, _)) => match msg {
+                        MavMessage::ATTITUDE(attitude) => {
                             println!(
                                 "Roll: {:.2}° Pitch: {:.2}° Yaw: {:.2}°",
                                 attitude.roll.to_degrees(),
@@ -47,7 +58,8 @@ async fn main() -> Result<()> {
                                 attitude.yaw.to_degrees()
                             );
                         }
-                    }
+                        _ => {}
+                    },
                     Err(e) => {
                         if !e.is::<std::io::Error>()
                             || e.downcast_ref::<std::io::Error>()
@@ -64,7 +76,7 @@ async fn main() -> Result<()> {
             vehicle.populate_params().await?;
             println!("Received parameters:");
             for (param_id, param_value) in vehicle.params.iter() {
-                println!("{}: {}", param_id, param_value);
+                println!("{}: {:#?}", param_id, param_value);
             }
         }
         Commands::Reboot => {
