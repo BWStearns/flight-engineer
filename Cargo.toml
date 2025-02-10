@@ -14,3 +14,5 @@ tracing = "0.1"
 async-trait = "0.1"
 tokio-tungstenite = "0.26.1"
 clap = {version = "4.5.24", features = ["derive"]}
+tungstenite = "0.26.1"
+url = "2.5.4"

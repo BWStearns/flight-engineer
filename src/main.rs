@@ -2,7 +2,13 @@ use anyhow::Result;
 use clap::{command, Parser, Subcommand};
 use flight_engineer::Vehicle;
 use mavlink::common::MavMessage;
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+use tungstenite;
+use tungstenite::{client::IntoClientRequest, connect, Message};
+use url::Url;
 
 #[derive(Parser)]
 #[command(
@@ -39,9 +45,25 @@ enum Commands {
 async fn main() -> Result<()> {
     let args = Args::parse();
     let mut vehicle = Vehicle::connect(&args.connection_string)?;
+    let telem_state = Arc::new(Mutex::new(vehicle.telem));
 
-    // Set a reasonable timeout for receiving messages
-    // vehicle.set_receive_timeout(Duration::from_secs(1))?;
+    // Make a tokio task that sends telemetry messages to the server every 100ms
+    // Send vehicle.telem to the server every 100ms as JSON using a websocket
+
+    let telem = Arc::clone(&telem_state);
+    tokio::spawn(async move {
+        let ws_url = "ws://localhost:2121";
+        let request = ws_url.into_client_request().unwrap();
+        let (mut ws_stream, _) = connect(request).expect("Failed to connect");
+        loop {
+            let json = serde_json::to_string(&*telem.lock().unwrap()).unwrap();
+            ws_stream
+                .send(Message::Text(json.into()))
+                .expect("Failed to send message to websocket");
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            println!("Sent telemetry");
+        }
+    });
 
     match args.command {
         Commands::Telem => {
@@ -49,17 +71,10 @@ async fn main() -> Result<()> {
             let _ = vehicle.request_stream();
             loop {
                 match vehicle.receive() {
-                    Ok((msg, _)) => match msg {
-                        MavMessage::ATTITUDE(attitude) => {
-                            println!(
-                                "Roll: {:.2}° Pitch: {:.2}° Yaw: {:.2}°",
-                                attitude.roll.to_degrees(),
-                                attitude.pitch.to_degrees(),
-                                attitude.yaw.to_degrees()
-                            );
-                        }
-                        _ => {}
-                    },
+                    Ok((msg, _)) => {
+                        telem_state.lock().unwrap().update_from_mavlink(msg);
+                        dbg!(&telem_state);
+                    }
                     Err(e) => {
                         if !e.is::<std::io::Error>()
                             || e.downcast_ref::<std::io::Error>()
