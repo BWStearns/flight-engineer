@@ -83,11 +83,11 @@ impl Telemetry {
             MavMessage::GPS_RAW_INT(gps_raw_int) => {
                 self.heading = gps_raw_int.cog as f32;
             }
-            MavMessage::COMMAND_ACK(_command_ack) => {
-                // if command_ack.command == MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN {
-                //     self.px4_mode = command_ack.result;
-                // }
-            }
+            // MavMessage::COMMAND_ACK(_command_ack) => {
+            //     // if command_ack.command == MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN {
+            //     //     self.px4_mode = command_ack.result;
+            //     // }
+            // }
             // Skip unrelated messages
             _ => {}
         }

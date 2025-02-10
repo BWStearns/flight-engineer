@@ -2,6 +2,11 @@ use anyhow::Result;
 use clap::{command, Parser, Subcommand};
 use flight_engineer::Vehicle;
 use mavlink::common::MavMessage;
+use rust_socketio::{
+    asynchronous::{Client, ClientBuilder},
+    Payload, RawClient,
+};
+use serde_json::json;
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
@@ -41,6 +46,9 @@ enum Commands {
     Reboot,
 }
 
+// #[derive(Debug, Serialize, Deserialize)]
+// struct TelemUpdate {}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -52,14 +60,21 @@ async fn main() -> Result<()> {
 
     let telem = Arc::clone(&telem_state);
     tokio::spawn(async move {
-        let ws_url = "ws://localhost:2121";
-        let request = ws_url.into_client_request().unwrap();
-        let (mut ws_stream, _) = connect(request).expect("Failed to connect");
+        println!("Connecting to websocket...");
+        let socket = ClientBuilder::new("http://localhost:5150/")
+            .namespace("/")
+            .connect()
+            .await
+            .expect("Failed to connect to websocket");
+
+        println!("Connected to websocket!");
         loop {
-            let json = serde_json::to_string(&*telem.lock().unwrap()).unwrap();
-            ws_stream
-                .send(Message::Text(json.into()))
-                .expect("Failed to send message to websocket");
+            println!("Sending telemetry!");
+            let json = json!(&*telem.lock().unwrap());
+            socket
+                .emit("update_state", Payload::Text(vec![json]))
+                .await
+                .unwrap();
             tokio::time::sleep(Duration::from_millis(100)).await;
             println!("Sent telemetry");
         }
@@ -67,13 +82,13 @@ async fn main() -> Result<()> {
 
     match args.command {
         Commands::Telem => {
-            println!("Listening for attitude messages...");
+            println!("Listening for telemetry messages...");
             let _ = vehicle.request_stream();
             loop {
                 match vehicle.receive() {
                     Ok((msg, _)) => {
                         telem_state.lock().unwrap().update_from_mavlink(msg);
-                        dbg!(&telem_state);
+                        // dbg!(&telem_state);
                     }
                     Err(e) => {
                         if !e.is::<std::io::Error>()
